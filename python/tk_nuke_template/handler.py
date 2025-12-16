@@ -109,8 +109,12 @@ class NukeTemplateHandler:
 
         # Get current location of read node
         read_node = nuke.toNode("Read1")
-        read_node_x = read_node["xpos"].value()
-        read_node_y = read_node["ypos"].value()
+        read_node_x = 0
+        read_node_y = 0
+        if read_node is not None:
+            read_node_x = read_node["xpos"].value()
+            read_node_y = read_node["ypos"].value()
+            read_node["label"].setValue("")
 
         # Get current location of dot
         plate_noop = nuke.toNode("plateNoOp")
