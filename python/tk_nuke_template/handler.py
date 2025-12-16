@@ -55,24 +55,31 @@ class NukeTemplateHandler:
         all_nodes = nuke.allNodes()
 
         # Creating variable
-        write_node = ""
+        write_node = None
+        timecode_node = None
 
         # Handling for when no viewer node exists
         viewer_node = False
 
+        nodes = []
         # Delete unnecessary nodes
         for node in all_nodes:
             if node.Class() == "Group":
                 if node["isShotGridWriteNode"]:
-                    write_node = nuke.toNode(node.name())
-            if node.name() == "ShotGridWriteNodePlaceholder":
-                write_node = nuke.toNode(node.name())
+                    write_node = node
+            if (
+                node.name() == "ShotgunWriteNodePlaceholder"
+                or node.Class() == "WriteTank"
+            ):
+                write_node = node
             if node.Class() == "Viewer":
-                viewer_node = nuke.toNode(node.name())
+                viewer_node = node
+            elif node.Class() == "AddTimeCode":
+                timecode_node = node
 
             if (
-                not node.Class()
-                in [
+                node.Class()
+                not in [
                     "Read",
                     "WriteTank",
                     "Group",
@@ -81,10 +88,13 @@ class NukeTemplateHandler:
                     "Merge",
                     "TimeOffset",
                     "Viewer",
+                    "AddTimeCode",
                 ]
-                and not node.name() == "ShotGridWriteNodePlaceholder"
+                and node.name() != "ShotgunWriteNodePlaceholder"
             ):
                 nuke.delete(node)
+            else:
+                nodes.append(node)
 
         ### Replacing nodes
         # Calculating ShotGrid template paths
@@ -128,7 +138,17 @@ class NukeTemplateHandler:
         x_write_no_op = write_no_op["xpos"].value()
         y_write_no_op = write_no_op["ypos"].value()
 
-        if not write_node == "":
+        if timecode_node is not None:
+            timecode_node.setInput(0, write_no_op)
+            timecode_node["xpos"].setValue(x_write_no_op)
+            timecode_node["ypos"].setValue(y_write_no_op)
+
+            y_write_no_op += 50
+            if write_node is not None:
+                write_node.setInput(0, timecode_node)
+                write_node["xpos"].setValue(x_write_no_op)
+                write_node["ypos"].setValue(y_write_no_op)
+        elif write_node is not None:
             write_node.setInput(0, write_no_op)
             write_node["xpos"].setValue(x_write_no_op)
             write_node["ypos"].setValue(y_write_no_op)
