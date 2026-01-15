@@ -55,24 +55,31 @@ class NukeTemplateHandler:
         all_nodes = nuke.allNodes()
 
         # Creating variable
-        write_node = ""
+        write_node = None
+        timecode_node = None
 
         # Handling for when no viewer node exists
         viewer_node = False
 
+        nodes = []
         # Delete unnecessary nodes
         for node in all_nodes:
             if node.Class() == "Group":
                 if node["isShotGridWriteNode"]:
-                    write_node = nuke.toNode(node.name())
-            if node.name() == "ShotGridWriteNodePlaceholder":
-                write_node = nuke.toNode(node.name())
+                    write_node = node
+            if (
+                node.name() == "ShotgunWriteNodePlaceholder"
+                or node.Class() == "WriteTank"
+            ):
+                write_node = node
             if node.Class() == "Viewer":
-                viewer_node = nuke.toNode(node.name())
+                viewer_node = node
+            elif node.Class() == "AddTimeCode":
+                timecode_node = node
 
             if (
-                not node.Class()
-                in [
+                node.Class()
+                not in [
                     "Read",
                     "WriteTank",
                     "Group",
@@ -81,10 +88,13 @@ class NukeTemplateHandler:
                     "Merge",
                     "TimeOffset",
                     "Viewer",
+                    "AddTimeCode",
                 ]
-                and not node.name() == "ShotGridWriteNodePlaceholder"
+                and node.name() != "ShotgunWriteNodePlaceholder"
             ):
                 nuke.delete(node)
+            else:
+                nodes.append(node)
 
         ### Replacing nodes
         # Calculating ShotGrid template paths
@@ -99,8 +109,12 @@ class NukeTemplateHandler:
 
         # Get current location of read node
         read_node = nuke.toNode("Read1")
-        read_node_x = read_node["xpos"].value()
-        read_node_y = read_node["ypos"].value()
+        read_node_x = 0
+        read_node_y = 0
+        if read_node is not None:
+            read_node_x = read_node["xpos"].value()
+            read_node_y = read_node["ypos"].value()
+            read_node["label"].setValue("")
 
         # Get current location of dot
         plate_noop = nuke.toNode("plateNoOp")
@@ -118,6 +132,8 @@ class NukeTemplateHandler:
             node["xpos"].setValue(x_pos - x_difference)
             node["ypos"].setValue(y_pos - y_difference + 25)
 
+        self._position_additional_read_nodes(nodes, read_node)
+
         ### Reconnecting nodes
         # Connect read node
         plate_noop.setInput(0, read_node)
@@ -128,7 +144,17 @@ class NukeTemplateHandler:
         x_write_no_op = write_no_op["xpos"].value()
         y_write_no_op = write_no_op["ypos"].value()
 
-        if not write_node == "":
+        if timecode_node is not None:
+            timecode_node.setInput(0, write_no_op)
+            timecode_node["xpos"].setValue(x_write_no_op)
+            timecode_node["ypos"].setValue(y_write_no_op)
+
+            y_write_no_op += 50
+            if write_node is not None:
+                write_node.setInput(0, timecode_node)
+                write_node["xpos"].setValue(x_write_no_op)
+                write_node["ypos"].setValue(y_write_no_op)
+        elif write_node is not None:
             write_node.setInput(0, write_no_op)
             write_node["xpos"].setValue(x_write_no_op)
             write_node["ypos"].setValue(y_write_no_op)
@@ -143,6 +169,88 @@ class NukeTemplateHandler:
         # Unselect all nodes
         for node in nuke.selectedNodes():
             node["selected"].setValue(False)
+
+    def _position_additional_read_nodes(self, nodes, primary_read_node):
+        """Place additional read nodes under a backdrop whose top-left is at elementsNoOp."""
+
+        elements_noop = nuke.toNode("elementsNoOp")
+        if not elements_noop:
+            return
+
+        if not primary_read_node:
+            nuke.delete(elements_noop)
+            return
+
+        # Collect reads except the primary one
+        additional_read_nodes = [
+            n
+            for n in nodes
+            if n.Class() == "Read" and n.name() != primary_read_node.name()
+        ]
+
+        if len(additional_read_nodes) == 0:
+            nuke.delete(elements_noop)
+            return
+
+        # Anchor (top-left) for the backdrop
+        left = int(elements_noop["xpos"].value())
+        top = int(elements_noop["ypos"].value())
+
+        # Layout params
+        spacing = int(150 * 8 / 1.5)
+        inner_margin = 60 * 6
+        padding_right = inner_margin
+        padding_bottom = inner_margin
+
+        # Place reads starting at an inner offset from the top-left anchor
+        start_x = left + inner_margin
+        start_y = top + inner_margin
+
+        for idx, read_node in enumerate(
+            sorted(additional_read_nodes, key=lambda n: n["xpos"].value())
+        ):
+            read_node["xpos"].setValue(int(start_x + idx * spacing))
+            read_node["ypos"].setValue(int(start_y))
+            read_node["label"].setValue("")
+
+        # Compute extents based on newly placed nodes
+        max_right = max(
+            n["xpos"].value() + n.screenWidth() for n in additional_read_nodes
+        )
+        max_bottom = max(
+            n["ypos"].value() + n.screenHeight() for n in additional_read_nodes
+        )
+
+        bd_width = int((max_right + padding_right) - left)
+        bd_height = int((max_bottom + padding_bottom) - top)
+
+        # Create backdrop, with its top-left locked to elementsNoOp
+        backdrop = nuke.nodes.BackdropNode(name="elementsBackdrop")
+
+        backdrop["xpos"].setValue(left)
+        backdrop["ypos"].setValue(top)
+        backdrop["bdwidth"].setValue(max(bd_width, 1))
+        backdrop["bdheight"].setValue(max(bd_height, 1))
+        backdrop["label"].setValue('<img src="Read.png">')
+        backdrop["note_font_size"].setValue(100)
+        backdrop["tile_color"].setValue(639124735)
+
+        if backdrop["selected"].value():
+            backdrop["selected"].setValue(False)
+
+        note_x = left + (inner_margin // 2)
+        note_y = top + (inner_margin // 4)
+
+        sticky = nuke.nodes.StickyNote(
+            xpos=note_x,
+            ypos=note_y,
+            label="PLATES",
+        )
+        sticky["tile_color"].setValue(255)
+        sticky["note_font_size"].setValue(100)
+
+        # Clean up the helper NoOp
+        nuke.delete(elements_noop)
 
     def add_callbacks(self):
         # Add callbacks when changing context

@@ -20,8 +20,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
-import nuke
 from sgtk.platform import Application
 
 
@@ -41,7 +39,6 @@ class NukeTemplateGenerator(Application):
 
         # Add callbacks
         self.handler.add_callbacks()
-
 
     def destroy_app(self):
         """
